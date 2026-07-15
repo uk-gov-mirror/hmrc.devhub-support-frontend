@@ -106,7 +106,12 @@
             value = form("whatDoYouNeedHelpWith").value,
             maxLength = Some(1000),
             errorMessage = form.error("whatDoYouNeedHelpWith").map(e => ErrorMessage(content = Text(messages(e.message))))
-        ))    
+        ))
+
+        <div class="url-field-wrapper">
+            <label for="website-url">Your website</label>
+            <input type="text" id="website-url" name="url" tabindex="-1" autocomplete="nope" />
+        </div>
 
         @govukButton(
             Button(

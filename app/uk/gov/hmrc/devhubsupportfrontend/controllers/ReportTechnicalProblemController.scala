@@ -26,8 +26,9 @@ import play.api.mvc.{Action, AnyContent, MessagesControllerComponents}
 
 import uk.gov.hmrc.devhubsupportfrontend.config.{AppConfig, ErrorHandler}
 import uk.gov.hmrc.devhubsupportfrontend.connectors.ThirdPartyDeveloperConnector
+import uk.gov.hmrc.devhubsupportfrontend.domain.models.SupportSessionId
 import uk.gov.hmrc.devhubsupportfrontend.services._
-import uk.gov.hmrc.devhubsupportfrontend.views.html.{ReportTechnicalProblemConfirmationView, ReportTechnicalProblemView}
+import uk.gov.hmrc.devhubsupportfrontend.views.html.{ReportTechnicalProblemConfirmationView, ReportTechnicalProblemView, SupportPageConfirmationForHoneyPotFieldView}
 
 object ReportTechnicalProblemController {
 
@@ -37,7 +38,8 @@ object ReportTechnicalProblemController {
       whatWereYouDoing: String,
       whatDoYouNeedHelpWith: String,
       service: Option[String],
-      referrer: Option[String] = None
+      referrer: Option[String] = None,
+      url: Option[String]
     )
 
   object ReportTechnicalProblemForm {
@@ -67,7 +69,8 @@ object ReportTechnicalProblemController {
           )
           .verifying("reportproblem.whatdoyouneedhelpwith.error.length", whatDoYouNeedHelpWith => whatDoYouNeedHelpWith.length <= 1000),
         "service"               -> optional(text),
-        "referrer"              -> optional(text)
+        "referrer"              -> optional(text),
+        "url"                   -> optional(text)
       )(ReportTechnicalProblemForm.apply)(ReportTechnicalProblemForm.unapply)
     )
   }
@@ -81,7 +84,8 @@ class ReportTechnicalProblemController @Inject() (
     val thirdPartyDeveloperConnector: ThirdPartyDeveloperConnector,
     supportService: SupportService,
     reportTechnicalProblemView: ReportTechnicalProblemView,
-    reportTechnicalProblemConfirmationView: ReportTechnicalProblemConfirmationView
+    reportTechnicalProblemConfirmationView: ReportTechnicalProblemConfirmationView,
+    supportPageConfirmationForHoneyPotFieldView: SupportPageConfirmationForHoneyPotFieldView
   )(implicit val ec: ExecutionContext,
     val appConfig: AppConfig
   ) extends AbstractController(mcc) {
@@ -99,23 +103,29 @@ class ReportTechnicalProblemController @Inject() (
         Future.successful(BadRequest(reportTechnicalProblemView(fullyloggedInDeveloper, formWithErrors, None, None)))
       },
       data => {
-        val userAgent = request.headers.get("User-Agent")
-        val sessionId = request.userSession match {
-          case Some(session) => Some(session.sessionId.toString())
-          case _             => None
+        if (fullyloggedInDeveloper.isEmpty && data.url.isDefined) {
+          logger.warn(s"Honeypot field triggered via 'Get help with a technical problem' support form")
+          val sessionId = extractSupportSessionIdFromCookie(request).getOrElse(SupportSessionId.random)
+          Future.successful(withSupportCookie(Ok(supportPageConfirmationForHoneyPotFieldView(fullyloggedInDeveloper)), sessionId))
+        } else {
+          val userAgent = request.headers.get("User-Agent")
+          val sessionId = request.userSession match {
+            case Some(session) => Some(session.sessionId.toString())
+            case _             => None
+          }
+          supportService.reportTechnicalProblem(
+            data.fullName,
+            data.emailAddress,
+            data.whatWereYouDoing,
+            data.whatDoYouNeedHelpWith,
+            data.service,
+            data.referrer,
+            userAgent,
+            sessionId
+          ).map(ref =>
+            Redirect(routes.ReportTechnicalProblemController.confirmationPage(ref))
+          )
         }
-        supportService.reportTechnicalProblem(
-          data.fullName,
-          data.emailAddress,
-          data.whatWereYouDoing,
-          data.whatDoYouNeedHelpWith,
-          data.service,
-          data.referrer,
-          userAgent,
-          sessionId
-        ).map(ref =>
-          Redirect(routes.ReportTechnicalProblemController.confirmationPage(ref))
-        )
       }
     )
   }

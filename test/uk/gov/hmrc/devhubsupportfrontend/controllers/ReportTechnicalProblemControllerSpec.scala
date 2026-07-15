@@ -31,13 +31,14 @@ import uk.gov.hmrc.devhubsupportfrontend.mocks.services.SupportServiceMockModule
 import uk.gov.hmrc.devhubsupportfrontend.utils.WithCSRFAddToken
 import uk.gov.hmrc.devhubsupportfrontend.utils.WithLoggedInSession._
 import uk.gov.hmrc.devhubsupportfrontend.utils.WithSupportSession._
-import uk.gov.hmrc.devhubsupportfrontend.views.html.{ReportTechnicalProblemConfirmationView, ReportTechnicalProblemView}
+import uk.gov.hmrc.devhubsupportfrontend.views.html.{ReportTechnicalProblemConfirmationView, ReportTechnicalProblemView, SupportPageConfirmationForHoneyPotFieldView}
 
 class ReportTechnicalProblemControllerSpec extends BaseControllerSpec with WithCSRFAddToken {
 
   trait Setup extends SupportServiceMockModule with ThirdPartyDeveloperConnectorMockModule with UserBuilder with LocalUserIdTracker {
-    val reportTechnicalProblemView             = app.injector.instanceOf[ReportTechnicalProblemView]
-    val reportTechnicalProblemConfirmationView = app.injector.instanceOf[ReportTechnicalProblemConfirmationView]
+    val reportTechnicalProblemView                  = app.injector.instanceOf[ReportTechnicalProblemView]
+    val reportTechnicalProblemConfirmationView      = app.injector.instanceOf[ReportTechnicalProblemConfirmationView]
+    val supportPageConfirmationForHoneyPotFieldView = app.injector.instanceOf[SupportPageConfirmationForHoneyPotFieldView]
 
     val underTest = new ReportTechnicalProblemController(
       mcc,
@@ -46,7 +47,8 @@ class ReportTechnicalProblemControllerSpec extends BaseControllerSpec with WithC
       ThirdPartyDeveloperConnectorMock.aMock,
       SupportServiceMock.aMock,
       reportTechnicalProblemView,
-      reportTechnicalProblemConfirmationView
+      reportTechnicalProblemConfirmationView,
+      supportPageConfirmationForHoneyPotFieldView
     )
 
     val sessionParams: Seq[(String, String)] = Seq("csrfToken" -> app.injector.instanceOf[TokenProvider].generateToken)
@@ -58,6 +60,7 @@ class ReportTechnicalProblemControllerSpec extends BaseControllerSpec with WithC
     val whatDoYouNeedHelpWith: String = "Help me SDST, you're my only hope"
     val service: String               = "third-party-developer"
     val referrer: String              = "referrer"
+    val honeypotUrl                   = "It's a trap"
   }
 
   trait IsLoggedIn {
@@ -175,6 +178,58 @@ class ReportTechnicalProblemControllerSpec extends BaseControllerSpec with WithC
         status(result) shouldBe BAD_REQUEST
         contentAsString(result) should include("Full name cannot be longer than 70 characters")
         contentAsString(result) should include("Enter an email address in the correct format, like name@example.com")
+      }
+
+      "submit new request when honeypot field filled in but logged in" in new Setup with IsLoggedIn {
+        val newRequest = request
+          .withFormUrlEncodedBody(
+            "fullName"              -> fullName,
+            "emailAddress"          -> emailAddress,
+            "whatWereYouDoing"      -> whatWereYouDoing,
+            "whatDoYouNeedHelpWith" -> whatDoYouNeedHelpWith,
+            "referrer"              -> referrer,
+            "service"               -> service,
+            "url"                   -> honeypotUrl
+          )
+        SupportServiceMock.ReportTechnicalProblem.succeeds()
+
+        val result = addToken(underTest.action())(newRequest)
+
+        status(result) shouldBe SEE_OTHER
+        redirectLocation(result) shouldBe Some("/devhub-support/report-technical-problem-confirm/ticket-ref")
+
+        SupportServiceMock.ReportTechnicalProblem.verifyCalledWith(
+          fullName,
+          emailAddress,
+          whatWereYouDoing,
+          whatDoYouNeedHelpWith,
+          Some(service),
+          Some(referrer),
+          None,
+          Some(sessionId.toString())
+        )
+      }
+
+      "show dummy confirmation page when honeypot field filled in but not logged in" in new Setup with NotLoggedIn {
+        val newRequest = request
+          .withFormUrlEncodedBody(
+            "fullName"              -> fullName,
+            "emailAddress"          -> emailAddress,
+            "whatWereYouDoing"      -> whatWereYouDoing,
+            "whatDoYouNeedHelpWith" -> whatDoYouNeedHelpWith,
+            "referrer"              -> referrer,
+            "service"               -> service,
+            "url"                   -> honeypotUrl
+          )
+
+        val result = addToken(underTest.action())(newRequest)
+
+        status(result) shouldBe OK
+        contentAsString(result) should include("We've sent you a confirmation email")
+        contentAsString(result) should include("Your request will be sent to the right team as quickly as possible")
+        contentAsString(result) should include("We'll send an email to your email address whenever there's an update")
+
+        verifyZeroInteractions(SupportServiceMock.aMock)
       }
     }
 
