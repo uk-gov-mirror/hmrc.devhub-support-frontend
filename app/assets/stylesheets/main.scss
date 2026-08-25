@@ -4,7 +4,7 @@ $hmrc-assets-path: "/devhub-support/assets/lib/hmrc-frontend/hmrc/";
 // Partials
 
 // Import FE Styles
-@import "lib/govuk-frontend/dist/govuk/all";
+@import "lib/govuk-frontend/dist/govuk/index";
 @import "lib/hmrc-frontend/hmrc/all";
 
 // Ad-hoc fixes
