@@ -45,3 +45,8 @@
     @extend .govuk-list;
   }
 }
+
+.hidden {
+  display: none !important;
+  visibility: hidden;
+}
